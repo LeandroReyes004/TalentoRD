@@ -1,3 +1,4 @@
+import { findCompany } from '../../../lib/companies';
 import { getAdmin } from '../../../lib/admin';
 import { supabaseConfigured, supabaseRequest } from '../../../lib/supabase';
 import { CV_BUCKET, MAX_CV_BYTES, stages, validCandidate } from '../../../lib/candidates';
@@ -12,13 +13,14 @@ const sameOrigin=(request:Request)=>request.headers.get('origin')===new URL(requ
 type StoredCandidate=Record<string,unknown>&{created_at:string;cv_name:string;cv_key?:string};
 
 export async function GET(request:Request) {
-  if (!await getAdmin()) return json({error:'Inicia sesión con una cuenta administradora autorizada.'},401);
+  const admin=await getAdmin();
+  if (!admin) return json({error:'Inicia sesión con una cuenta administradora autorizada.'},401);
   if (!supabaseConfigured()) return unavailable();
   try {
     const id=new URL(request.url).searchParams.get('cv');
     if (id!==null) {
       if (!uuid.test(id)) return json({error:'Identificador inválido.'},400);
-      const result=await supabaseRequest(table+'?select=cv_key&id=eq.'+id);
+      const result=await supabaseRequest(table+'?select=cv_key&id=eq.'+id+'&company_id=eq.'+admin.company.id);
       if (!result.ok) throw new Error('Consulta fallida.');
       const [row]=await result.json() as StoredCandidate[];
       if (!row || !row.cv_key) return json({error:'Candidatura no encontrada.'},404);
@@ -29,7 +31,7 @@ export async function GET(request:Request) {
     }
     const rows:Record<string,unknown>[]=[];
     for(let offset=0;;offset+=1000) {
-      const response=await supabaseRequest(table+'?select='+columns+'&order=created_at.desc,id.desc&limit=1000&offset='+offset);
+      const response=await supabaseRequest(table+'?select='+columns+'&company_id=eq.'+admin.company.id+'&order=created_at.desc,id.desc&limit=1000&offset='+offset);
       if(!response.ok) throw new Error('Consulta fallida.');
       const page=await response.json() as StoredCandidate[];
       rows.push(...page.map(({created_at,cv_name,...rest})=>({...rest,createdAt:created_at,cvName:cv_name})));
@@ -45,16 +47,20 @@ export async function POST(request:Request) {
   let data:FormData;
   try {data=await readApplicationForm(request);}
   catch(error){return json({error:error instanceof RangeError?'El formulario supera el tamaño permitido.':'No se pudo leer el formulario.'},error instanceof RangeError?413:400);}
-  const fields=validCandidate(data);
+  const slug=String(data.get('company')||'');
+  if(!/^[a-z0-9-]{2,71}$/.test(slug))return json({error:'Empresa inválida.'},400);
+  let company;try{company=await findCompany('slug',slug);}catch{return unavailable();}
+  if(!company)return json({error:'Empresa no encontrada.'},404);
+  const fields=validCandidate(data,company.form_config);
   if (!fields || data.get('website')) return json({error:'Revisa los datos y el consentimiento.'},400);
   const cv=data.get('cv');
   if (!(cv instanceof File) || !cv.size || cv.size>MAX_CV_BYTES || cv.type!=='application/pdf') return json({error:'Adjunta tu CV en PDF, máximo 4 MB.'},400);
   if (new TextDecoder().decode(await cv.slice(0,5).arrayBuffer())!=='%PDF-') return json({error:'El archivo no es un PDF válido.'},400);
-  const id=crypto.randomUUID(),cvKey=id+'.pdf';
+  const id=crypto.randomUUID(),cvKey=company.id+'/'+id+'.pdf';
   try {
     const uploaded=await supabaseRequest('/storage/v1/object/'+CV_BUCKET+'/'+cvKey,{method:'POST',headers:{'Content-Type':'application/pdf','x-upsert':'false'},body:cv});
     if(!uploaded.ok)throw new Error('Carga fallida.');
-    const inserted=await supabaseRequest(table,{method:'POST',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({...fields,id,cv_key:cvKey,cv_name:cv.name.slice(0,200)})});
+    const inserted=await supabaseRequest(table,{method:'POST',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({...fields,id,company_id:company.id,form_snapshot:company.form_config,cv_key:cvKey,cv_name:cv.name.slice(0,200)})});
     if(!inserted.ok) {
       await supabaseRequest('/storage/v1/object/'+CV_BUCKET,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefixes:[cvKey]})});
       throw new Error('Registro fallido.');
@@ -65,7 +71,8 @@ export async function POST(request:Request) {
 
 export async function PATCH(request:Request) {
   if (!sameOrigin(request)) return json({error:'Origen no permitido.'},403);
-  if (!await getAdmin()) return json({error:'No autorizado.'},401);
+  const admin=await getAdmin();
+  if (!admin) return json({error:'No autorizado.'},401);
   if (!supabaseConfigured()) return unavailable();
   let data:{id?:unknown;status?:unknown};
   try {
@@ -75,7 +82,7 @@ export async function PATCH(request:Request) {
   } catch {return json({error:'Solicitud inválida.'},400);}
   if (!data || typeof data.id!=='string' || !uuid.test(data.id) || typeof data.status!=='string' || !stages.includes(data.status)) return json({error:'Estado o identificador inválido.'},400);
   try {
-    const response=await supabaseRequest(table+'?id=eq.'+data.id+'&select=id',{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({status:data.status})});
+    const response=await supabaseRequest(table+'?id=eq.'+data.id+'&company_id=eq.'+admin.company.id+'&select=id',{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=representation'},body:JSON.stringify({status:data.status})});
     if(!response.ok)throw new Error('Actualización fallida.');
     const rows=await response.json() as {id:string}[];
     return rows.length?json({ok:true}):json({error:'Candidatura no encontrada.'},404);

@@ -1,0 +1,2 @@
+import RegistrationForm from './registration-form';
+export default function RegisterPage(){return <main className="access-page"><section className="card"><div className="eyebrow">TALENTORD · CREA TU ESPACIO</div><h1>Registra tu empresa</h1><p>Gestiona tu reclutamiento con un espacio privado y un formulario propio.</p><RegistrationForm/><a className="text-button" href="/admin/login">Ya tengo cuenta · Iniciar sesión</a></section></main>;}

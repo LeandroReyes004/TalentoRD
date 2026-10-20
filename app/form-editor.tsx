@@ -1,0 +1,10 @@
+"use client";
+import { useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { type FormConfig } from '../lib/form-config';
+export default function FormEditor({initial}:{initial:FormConfig}){
+ const router=useRouter();
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();const data=new FormData(e.currentTarget);const config={title:data.get('title'),description:data.get('description'),...Object.fromEntries(['positions','education','availability','english','sources'].map(k=>[k,String(data.get(k)||'').split('\n').map(v=>v.trim()).filter(Boolean)]))};setBusy(true);setMessage('');try{const r=await fetch('/api/company',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});const result=await r.json();if(!r.ok)throw new Error(result.error);setMessage('Formulario publicado. Las nuevas candidaturas usarán estas opciones.');router.refresh();}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+ return <section className="card form-editor"><h2>Personaliza tu formulario</h2><p>Escribe una opción por línea. Los cambios se aplican al enlace de tu empresa; las respuestas anteriores se conservan.</p><form className="login-form" onSubmit={save}><label>Título<input name="title" defaultValue={initial.title} maxLength={150} required/></label><label>Descripción<textarea name="description" defaultValue={initial.description} maxLength={500} rows={3}/></label><div className="fields">{([['positions','Áreas de interés'],['education','Niveles de estudios'],['availability','Disponibilidad'],['english','Niveles de inglés'],['sources','Origen de las candidaturas']] as const).map(([key,label])=><label key={key}>{label}<textarea name={key} defaultValue={initial[key].join('\n')} rows={5} required/></label>)}</div><p role="status">{message}</p><button className="primary" disabled={busy}>{busy?'Guardando…':'Guardar y publicar formulario'}</button></form></section>;
+}

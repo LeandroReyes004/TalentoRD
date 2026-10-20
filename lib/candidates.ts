@@ -13,15 +13,15 @@ export type Candidate = {
   source:string; status:string; createdAt:string; cvName:string;
 };
 
-export function validCandidate(data: FormData) {
+export function validCandidate(data: FormData, config={positions,education:educationLevels,availability:availabilityOptions,english:englishLevels,sources}) {
   const read = (key: string) => String(data.get(key) || '').trim();
   const name=read('name'), email=read('email').toLowerCase(), phone=read('phone');
   const position=read('position'), education=read('education'), availability=read('availability');
   const english=read('english'), motivation=read('motivation'), source=read('source');
   const experience=Number(read('experience')), salary=Number(read('salary'));
   if (!name || name.length>150 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length>254 ||
-    !phone || phone.length>40 || !positions.includes(position) || !educationLevels.includes(education) ||
-    !availabilityOptions.includes(availability) || !englishLevels.includes(english) || !sources.includes(source) ||
+    !phone || phone.length>40 || !config.positions.includes(position) || !config.education.includes(education) ||
+    !config.availability.includes(availability) || !config.english.includes(english) || !config.sources.includes(source) ||
     !read('experience') || !Number.isInteger(experience) || experience<0 || experience>50 ||
     !read('salary') || !Number.isInteger(salary) || salary<0 || salary>10000000 ||
     !motivation || motivation.length>2000 || read('consent')!=='on') return null;

@@ -6,5 +6,5 @@ export const dynamic='force-dynamic';
 export default async function AdminPage() {
   const admin=await getAdmin();
   if(!admin)redirect('/admin/login');
-  return <Recruitment adminEmail={admin.email} databaseReady={supabaseConfigured()}/>;
+  return <Recruitment adminEmail={admin.email} databaseReady={supabaseConfigured()} company={admin.company}/>;
 }
